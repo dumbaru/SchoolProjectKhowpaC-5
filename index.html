@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>64-Bit FPU Datapath & Expression Evaluator</title>
+    <style>
+        :root {
+            /* Blueprint / Schematic Aesthetic */
+            --bg-base: #060e15;
+            --bg-grid: #0d1b2a;
+            --panel-bg: rgba(13, 27, 42, 0.85);
+            --border-dark: #1b263b;
+            --border-light: #415a77;
+            
+            --text-main: #e0e1dd;
+            --text-dim: #778da9;
+            
+            /* Neon Accents */
+            --neon-cyan: #00f3ff;
+            --neon-green: #39ff14;
+            --neon-amber: #ffaa00;
+            --neon-crimson: #ff003c;
+            
+            --font-mono: 'Fira Code', 'Courier New', Courier, monospace;
+            --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Blueprint Grid & Scanlines */
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: 
+                linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+            z-index: -2;
+            pointer-events: none;
+        }
+
+        body::after {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(to bottom, rgba(255,255,255,0) 50%, rgba(0,0,0,0.15) 50%);
+            background-size: 100% 4px;
+            z-index: 1000;
+            pointer-events: none;
+            opacity: 0.3;
+        }
+
+        header {
+            background: rgba(6, 14, 21, 0.9);
+            border-bottom: 1px solid var(--neon-cyan);
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.1);
+            z-index: 10;
+        }
+
+        .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .brand h1 {
+            font-size: 1.2rem;
+            color: var(--neon-cyan);
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-shadow: 0 0 5px rgba(0, 243, 255, 0.4);
+        }
+
+        .brand span {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            background: var(--panel-bg);
+            padding: 10px 24px;
+            border-bottom: 1px solid var(--border-dark);
+            z-index: 10;
+            flex-wrap: wrap;
+        }
+
+        .input-group {
+            display: flex;
+            flex: 1;
+            min-width: 300px;
+            position: relative;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--border-light);
+            color: var(--neon-cyan);
+            font-family: var(--font-mono);
+            padding: 8px 12px;
+            border-radius: 4px 0 0 4px;
+            outline: none;
+            font-size: 1rem;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--neon-cyan);
+            box-shadow: inset 0 0 5px rgba(0,243,255,0.2);
+        }
+
+        button {
+            background: var(--border-dark);
+            color: var(--text-main);
+            border: 1px solid var(--border-light);
+            padding: 8px 16px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        button:hover { background: var(--border-light); }
+        
+        .btn-primary {
+            background: rgba(0, 243, 255, 0.1);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .btn-primary:hover {
+            background: var(--neon-cyan);
+            color: #000;
+            box-shadow: 0 0 10px var(--neon-cyan);
+        }
+
+        .btn-action { border-radius: 4px; }
+        
+        .btn-action.active-play {
+            border-color: var(--neon-amber);
+            color: var(--neon-amber);
+            background: rgba(255, 170, 0, 0.1);
+        }
+
+        .workspace {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+            z-index: 1;
+        }
+
+        .sidebar {
+            width: 350px;
+            background: var(--panel-bg);
+            border-right: 1px solid var(--border-dark);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            backdrop-filter: blur(5px);
+        }
+
+        .panel {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-dark);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .panel-header {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Native JS Comparator Box */
+        .comparator-box {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px dashed var(--border-light);
+            border-radius: 4px;
+            padding: 10px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+        }
+        .comp-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .comp-val { color: var(--neon-green); font-weight: bold; }
+        .comp-match { text-align: center; margin-top: 8px; padding: 4px; background: rgba(57, 255, 20, 0.1); color: var(--neon-green); border-radius: 2px; display: none;}
+        .comp-match.error { background: rgba(255, 0, 60, 0.1); color: var(--neon-crimson); }
+
+        /* RPN Micro-Ops */
+        .rpn-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .rpn-op {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid transparent;
+            padding: 4px 8px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            border-radius: 3px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .rpn-op.active {
+            border-color: var(--neon-cyan);
+            background: rgba(0, 243, 255, 0.1);
+            color: var(--neon-cyan);
+        }
+
+        /* Hardware Stack View */
+        .stack-view {
+            display: flex;
+            flex-direction: column-reverse; /* Bottom is index 0 */
+            gap: 2px;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border-dark);
+            padding: 4px;
+            border-radius: 4px;
+            min-height: 120px;
+        }
+        .stack-slot {
+            background: var(--border-dark);
+            padding: 4px 8px;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            text-align: right;
+            color: var(--neon-green);
+            border-left: 3px solid transparent;
+        }
+        .stack-slot.active { border-left-color: var(--neon-amber); background: rgba(255, 170, 0, 0.1); }
+        .stack-empty { color: var(--text-dim); text-align: center; font-style: italic; padding: 10px; }
+
+        /* Trace Log */
+        .trace-log {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            line-height: 1.4;
+            height: 150px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.6);
+            padding: 8px;
+            border: 1px solid var(--border-dark);
+            border-radius: 4px;
+        }
+        .log-line { color: var(--text-dim); }
+        .log-info { color: var(--neon-cyan); }
+        .log-warn { color: var(--neon-amber); }
+        .log-err { color: var(--neon-crimson); }
+
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            background: radial-gradient(circle at center, rgba(13, 27, 42, 0.5) 0%, rgba(6, 14, 21, 1) 100%);
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+        
+        input[type="range"] {
+            accent-color: var(--neon-cyan);
+            width: 100px;
+        }
+
+        /* Preset Chips */
+        .presets {
+            display: flex;
+            gap: 8px;
+            padding: 8px 24px;
+            background: var(--bg-base);
+            border-bottom: 1px solid var(--border-dark);
+            align-items: center;
+        }
+        .preset-chip {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-light);
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-family: var(--font-mono);
+        }
+        .preset-chip:hover { color: var(--neon-cyan); border-color: var(--neon-cyan); }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--neon-cyan); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <h1>64-Bit FPU Datapath Vis</h1>
+            <span>IEEE 754 Floating Point Micro-Op Executor</span>
+        </div>
+        <div style="color: var(--neon-green); font-family: var(--font-mono); font-size: 0.8rem; border: 1px solid var(--neon-green); padding: 4px 8px; border-radius: 4px; background: rgba(57, 255, 20, 0.05);">
+            STATUS: <span id="sysStatus">IDLE</span>
+        </div>
+    </header>
+
+    <div class="toolbar">
+        <div class="input-group">
+            <input type="text" id="exprInput" value="((2.5 + 3.5) * 10) / 3" placeholder="Enter math expression e.g. 3.14 * (2 + 1.5)">
+            <button class="btn-primary" id="btnCompile">Compile to RPN</button>
+        </div>
+        <button class="btn-action" id="btnPlayPause">▶ Run</button>
+        <button class="btn-action" id="btnStep" title="Step Forward">⏭ Step</button>
+        
+        <div class="speed-control">
+            <span>CLK Speed:</span>
+            <input type="range" id="speedSlider" min="1" max="10" value="5">
+            <span id="speedDisplay">1.0x</span>
+        </div>
+    </div>
+
+    <div class="presets">
+        <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-dim);">Examples:</span>
+        <div class="preset-chip">3.14 * 2.5</div>
+        <div class="preset-chip">((2+2)*100)/12</div>
+        <div class="preset-chip">10 / 3</div>
+        <div class="preset-chip">(15.5 - 5.5) * 4.2</div>
+    </div>
+
+    <div class="workspace">
+        <div class="sidebar">
+            
+            <!-- Native Evaluator -->
+            <div class="panel">
+                <div class="panel-header">JS Native Comparator <span>64-Bit Float</span></div>
+                <div class="comparator-box">
+                    <div class="comp-row">
+                        <span>Input:</span>
+                        <span id="compInput" style="color:var(--text-dim)">--</span>
+                    </div>
+                    <div class="comp-row">
+                        <span>Native Eval:</span>
+                        <span id="compNative" class="comp-val">--</span>
+                    </div>
+                    <div class="comp-row">
+                        <span>FPU VM Result:</span>
+                        <span id="compFpu" class="comp-val" style="color:var(--neon-cyan)">--</span>
+                    </div>
+                    <div id="compMatch" class="comp-match">MATCH CONFIRMED ✓</div>
+                </div>
+            </div>
+
+            <!-- RPN Instructions -->
+            <div class="panel">
+                <div class="panel-header">Compiled Micro-Ops (RPN) <span id="rpnCount">0</span></div>
+                <ul class="rpn-list" id="rpnList">
+                    <!-- Populated by JS -->
+                    <li style="color:var(--text-dim); font-style:italic; font-size: 0.7rem;">Awaiting Compilation...</li>
+                </ul>
+            </div>
+
+            <!-- Hardware Stack -->
+            <div class="panel">
+                <div class="panel-header">Hardware Stack (LIFO)</div>
+                <div class="stack-view" id="stackView">
+                    <div class="stack-empty">Stack Empty</div>
+                </div>
+            </div>
+
+            <!-- Execution Trace -->
+            <div class="panel" style="flex:1; border-bottom: none;">
+                <div class="panel-header">Execution Trace Log</div>
+                <div class="trace-log" id="traceLog">
+                    <div class="log-line">System initialized. Ready for input.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="canvas-container" id="canvasContainer">
+            <canvas id="dpCanvas"></canvas>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * UTILITIES
+         */
+        const Utils = {
+            formatFloat: (num) => {
+                // Remove trailing zeros for clean display, max 6 decimal places
+                return parseFloat(num.toFixed(6)).toString();
+            },
+            getFloatHex: (num) => {
+                // Get IEEE 754 Hex representation for pure visual nerdiness
+                const buf = new ArrayBuffer(8);
+                new Float64Array(buf)[0] = num;
+                const ints = new Uint32Array(buf);
+                return (ints[1].toString(16).padStart(8, '0') + ints[0].toString(16).padStart(8, '0')).toUpperCase();
+            },
+            delay: (ms) => new Promise(res => setTimeout(res, ms)),
+            safeEval: (expr) => {
+                try {
+                    // Safe evaluation using Function
+                    const sanitize = expr.replace(/[^0-9\+\-\*\/\(\)\.]/g, '');
+                    const res = new Function(`return ${sanitize}`)();
+                    return res;
+                } catch(e) { return null; }
+            }
+        };
+
+        /**
+         * MATH PARSER & COMPILER (Infix -> RPN)
+         */
+        class Compiler {
+            static tokenize(expr) {
+                // Match numbers (including decimals), and operators/parens
+                const tokens = [];
+                const regex = /([0-9]*\.?[0-9]+|[\+\-\*\/\(\)])/g;
+                let match;
+                while ((match = regex.exec(expr)) !== null) {
+                    tokens.push(match[1]);
+                }
+                return tokens;
+            }
+
+            static infixToRPN(tokens) {
+                const output = [];
+                const operators = [];
+                const precedence = { '+': 1, '-': 1, '*': 2, '/': 2 };
+
+                // Very basic unary minus handler: replace "- x" at start or after "(" with "0 - x"
+                const processedTokens = [];
+                for(let i=0; i<tokens.length; i++) {
+                    if (tokens[i] === '-' && (i === 0 || tokens[i-1] === '(')) {
+                        processedTokens.push('0');
+                        processedTokens.push('-');
+                    } else {
+                        processedTokens.push(tokens[i]);
+                    }
+                }
+
+                processedTokens.forEach(token => {
+                    if (!isNaN(parseFloat(token))) {
+                        output.push(parseFloat(token)); // Push number
+                    } else if (token in precedence) {
+                        while (operators.length > 0 && 
+                               operators[operators.length - 1] !== '(' && 
+                               precedence[operators[operators.length - 1]] >= precedence[token]) {
+                            output.push(operators.pop());
+                        }
+                        operators.push(token);
+                    } else if (token === '(') {
+                        operators.push(token);
+                    } else if (token === ')') {
+                        while (operators.length > 0 && operators[operators.length - 1] !== '(') {
+                            output.push(operators.pop());
+                        }
+                        operators.pop(); // Pop '('
+                    }
+                });
+
+                while (operators.length > 0) {
+                    output.push(operators.pop());
+                }
+
+                return output;
+            }
+
+            static compileToMicroOps(rpnArray) {
+                // Convert RPN sequence to executable VM steps
+                const ops = [];
+                rpnArray.forEach((item, idx) => {
+                    if (typeof item === 'number') {
+                        ops.push({ id: idx, type: 'PUSH', val: item, desc: `PUSH ${item}` });
+                    } else {
+                        ops.push({ id: idx, type: 'OP', val: item, desc: `EXEC ${item}` });
+                    }
+                });
+                return ops;
+            }
+        }
+
+        /**
+         * VIRTUAL FPU MACHINE
+         */
+        class FPU_VM {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.stack = [];
+                this.regA = null;
+                this.regB = null;
+                this.regOut = null;
+                this.pc = 0; // Program Counter
+                this.microOps = [];
+                this.state = 'IDLE'; // IDLE, RUNNING, PAUSED, DONE, ERROR
+            }
+
+            loadOps(ops) {
+                this.reset();
+                this.microOps = ops;
+                this.state = 'IDLE';
+            }
+
+            isDone() {
+                return this.pc >= this.microOps.length;
+            }
+
+            getCurrentOp() {
+                if (this.isDone()) return null;
+                return this.microOps[this.pc];
+            }
+
+            // Executes purely the logic step (animation is handled by controller)
+            executeStep() {
+                const op = this.getCurrentOp();
+                if (!op) return null;
+
+                let resultInfo = { op: op, action: '', newValue: null, error: false };
+
+                try {
+                    if (op.type === 'PUSH') {
+                        this.stack.push(op.val);
+                        resultInfo.action = 'PUSHED';
+                        resultInfo.newValue = op.val;
+                    } else if (op.type === 'OP') {
+                        if (this.stack.length < 2) throw new Error("Stack Underflow");
+                        
+                        this.regB = this.stack.pop(); // Right operand
+                        this.regA = this.stack.pop(); // Left operand
+                        
+                        let res = 0;
+                        switch(op.val) {
+                            case '+': res = this.regA + this.regB; break;
+                            case '-': res = this.regA - this.regB; break;
+                            case '*': res = this.regA * this.regB; break;
+                            case '/': 
+                                if(this.regB === 0) throw new Error("Div by Zero");
+                                res = this.regA / this.regB; 
+                                break;
+                        }
+                        
+                        this.regOut = res;
+                        this.stack.push(this.regOut);
+                        
+                        resultInfo.action = 'COMPUTED';
+                        resultInfo.newValue = this.regOut;
+                    }
+                    this.pc++;
+                } catch(e) {
+                    resultInfo.error = true;
+                    resultInfo.action = `ERROR: ${e.message}`;
+                    this.state = 'ERROR';
+                }
+
+                return resultInfo;
+            }
+        }
+
+        /**
+         * CANVAS RENDERER & ANIMATION
+         */
+        class Renderer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.width = this.canvas.width;
+                this.height = this.canvas.height;
+                
+                // Hardware components bounds (will be calculated on resize)
+                this.nodes = {};
+                this.wires = [];
+                this.packets = []; // Active data packets traveling
+                
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+            }
+
+            resize() {
+                const rect = this.canvas.parentElement.getBoundingClientRect();
+                this.canvas.width = rect.width;
+                this.canvas.height = rect.height;
+                this.width = rect.width;
+                this.height = rect.height;
+                this.recalculateLayout();
+            }
+
+            recalculateLayout() {
+                const w = this.width;
+                const h = this.height;
+                const centerX = w / 2;
+
+                // Define structural blocks
+                this.nodes = {
+                    STACK:  { x: centerX - 250, y: h/2, w: 100, h: 200 },
+                    REG_A:  { x: centerX - 50,  y: 80,  w: 120, h: 50 },
+                    REG_B:  { x: centerX + 150, y: 80,  w: 120, h: 50 },
+                    FPU:    { x: centerX + 50,  y: h/2, w: 200, h: 120 },
+                    REG_OUT:{ x: centerX + 50,  y: h - 100, w: 160, h: 50 }
+                };
+
+                // Define manhattan wires (source Node -> target Node)
+                // Wires are arrays of points
+                this.wires = {
+                    'STACK_TO_A': [
+                        {x: this.nodes.STACK.x + this.nodes.STACK.w/2, y: this.nodes.STACK.y - this.nodes.STACK.h/2}, // Stack top
+                        {x: this.nodes.STACK.x + this.nodes.STACK.w/2, y: 40},
+                        {x: this.nodes.REG_A.x, y: 40},
+                        {x: this.nodes.REG_A.x, y: this.nodes.REG_A.y - 25} // Reg A top
+                    ],
+                    'STACK_TO_B': [
+                        {x: this.nodes.STACK.x + this.nodes.STACK.w/2, y: this.nodes.STACK.y - this.nodes.STACK.h/2},
+                        {x: this.nodes.STACK.x + this.nodes.STACK.w/2, y: 30},
+                        {x: this.nodes.REG_B.x, y: 30},
+                        {x: this.nodes.REG_B.x, y: this.nodes.REG_B.y - 25} // Reg B top
+                    ],
+                    'A_TO_FPU': [
+                        {x: this.nodes.REG_A.x, y: this.nodes.REG_A.y + 25},
+                        {x: this.nodes.REG_A.x, y: this.nodes.FPU.y - 60} // FPU Top Left
+                    ],
+                    'B_TO_FPU': [
+                        {x: this.nodes.REG_B.x, y: this.nodes.REG_B.y + 25},
+                        {x: this.nodes.REG_B.x, y: this.nodes.FPU.y - 60} // FPU Top Right
+                    ],
+                    'FPU_TO_OUT': [
+                        {x: this.nodes.FPU.x, y: this.nodes.FPU.y + 60},
+                        {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y - 25}
+                    ],
+                    'OUT_TO_STACK': [
+                        {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y + 25},
+                        {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y + 60},
+                        {x: this.nodes.STACK.x, y: this.nodes.REG_OUT.y + 60},
+                        {x: this.nodes.STACK.x, y: this.nodes.STACK.y + this.nodes.STACK.h/2} // Stack bottom entry
+                    ],
+                    'EXT_TO_STACK': [ // For initial Push
+                        {x: this.nodes.STACK.x - 100, y: this.nodes.STACK.y},
+                        {x: this.nodes.STACK.x - 50, y: this.nodes.STACK.y}
+                    ]
+                };
+            }
+
+            drawBox(node, label, val = null, active = false, hexStr = "") {
+                const ctx = this.ctx;
+                const {x, y, w, h} = node;
+                
+                ctx.save();
+                ctx.translate(x, y);
+
+                // Box Background
+                ctx.fillStyle = active ? 'rgba(0, 243, 255, 0.15)' : 'rgba(13, 27, 42, 0.9)';
+                ctx.strokeStyle = active ? '#00f3ff' : '#415a77';
+                ctx.lineWidth = active ? 2 : 1;
+                
+                if (active) {
+                    ctx.shadowColor = '#00f3ff';
+                    ctx.shadowBlur = 15;
+                }
+
+                ctx.beginPath();
+                ctx.rect(-w/2, -h/2, w, h);
+                ctx.fill();
+                ctx.stroke();
+
+                // Inner detail line
+                ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+                ctx.strokeRect(-w/2 + 4, -h/2 + 4, w - 8, h - 8);
+
+                ctx.shadowBlur = 0; // reset
+
+                // Label
+                ctx.fillStyle = '#778da9';
+                ctx.font = '12px "Fira Code", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(label, 0, -h/2 + 16);
+
+                // Value
+                if (val !== null) {
+                    ctx.fillStyle = active ? '#39ff14' : '#e0e1dd';
+                    ctx.font = 'bold 16px "Fira Code", monospace';
+                    ctx.fillText(Utils.formatFloat(val), 0, 5);
+                    
+                    if (hexStr) {
+                        ctx.fillStyle = '#415a77';
+                        ctx.font = '10px "Fira Code", monospace';
+                        ctx.fillText(`0x${hexStr}`, 0, 20);
+                    }
+                } else if (label !== "64-BIT FPU" && label !== "STACK") {
+                    ctx.fillStyle = '#415a77';
+                    ctx.font = '14px "Fira Code", monospace';
+                    ctx.fillText("NULL", 0, 5);
+                }
+
+                // FPU special decorations
+                if (label === "64-BIT FPU") {
+                    ctx.fillStyle = active ? '#ffaa00' : '#415a77';
+                    ctx.font = '24px "Inter", sans-serif';
+                    ctx.fillText(active ? "COMPUTING..." : "IEEE 754", 0, 10);
+                }
+
+                ctx.restore();
+            }
+
+            drawWires() {
+                const ctx = this.ctx;
+                ctx.strokeStyle = 'rgba(65, 90, 119, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+
+                for (let key in this.wires) {
+                    const pts = this.wires[key];
+                    ctx.beginPath();
+                    ctx.moveTo(pts[0].x, pts[0].y);
+                    for (let i=1; i<pts.length; i++) {
+                        ctx.lineTo(pts[i].x, pts[i].y);
+                    }
+                    ctx.stroke();
+                }
+                ctx.setLineDash([]); // reset
+            }
+
+            // Packet = { pathKey: 'STACK_TO_A', progress: 0..1, val: 42, color: '#39ff14' }
+            drawPackets() {
+                const ctx = this.ctx;
+                
+                this.packets.forEach(p => {
+                    const pts = this.wires[p.pathKey];
+                    if(!pts) return;
+
+                    // Interpolate position along multi-segment path
+                    let totalDist = 0;
+                    const segDists = [];
+                    for(let i=0; i<pts.length-1; i++) {
+                        const d = Math.hypot(pts[i+1].x - pts[i].x, pts[i+1].y - pts[i].y);
+                        segDists.push(d);
+                        totalDist += d;
+                    }
+
+                    const targetDist = p.progress * totalDist;
+                    let currentDist = 0;
+                    let pos = {x: pts[0].x, y: pts[0].y};
+
+                    for(let i=0; i<pts.length-1; i++) {
+                        if (targetDist <= currentDist + segDists[i]) {
+                            // Point is on this segment
+                            const segmentProgress = (targetDist - currentDist) / segDists[i];
+                            pos.x = pts[i].x + (pts[i+1].x - pts[i].x) * segmentProgress;
+                            pos.y = pts[i].y + (pts[i+1].y - pts[i].y) * segmentProgress;
+                            break;
+                        }
+                        currentDist += segDists[i];
+                        if (i === pts.length - 2) pos = pts[pts.length-1]; // Force to end if rounding issue
+                    }
+
+                    // Draw glowing packet dot
+                    ctx.save();
+                    ctx.translate(pos.x, pos.y);
+                    
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 6, 0, Math.PI*2);
+                    ctx.fillStyle = p.color || '#00f3ff';
+                    ctx.shadowColor = p.color || '#00f3ff';
+                    ctx.shadowBlur = 10;
+                    ctx.fill();
+
+                    // Draw Value floating next to it
+                    ctx.fillStyle = '#fff';
+                    ctx.shadowBlur = 0;
+                    ctx.font = '12px "Fira Code", monospace';
+                    ctx.fillText(Utils.formatFloat(p.val), 10, -10);
+                    
+                    ctx.restore();
+                });
+            }
+
+            render(vmState) {
+                this.ctx.clearRect(0, 0, this.width, this.height);
+                
+                // Static Wires
+                this.drawWires();
+                
+                // Hardware Nodes
+                const { vm, activeFPU, activeRegA, activeRegB } = vmState;
+                
+                // Draw Stack specific visual (Boxes inside stack)
+                this.drawBox(this.nodes.STACK, "STACK", null, false);
+                // Draw stack items inside the box
+                this.ctx.save();
+                const sx = this.nodes.STACK.x;
+                const sy = this.nodes.STACK.y + this.nodes.STACK.h/2 - 20; // Bottom up
+                vm.stack.forEach((val, idx) => {
+                    this.ctx.fillStyle = '#1b263b';
+                    this.ctx.strokeStyle = '#00f3ff';
+                    this.ctx.fillRect(sx - 40, sy - (idx*25), 80, 20);
+                    this.ctx.strokeRect(sx - 40, sy - (idx*25), 80, 20);
+                    
+                    this.ctx.fillStyle = '#39ff14';
+                    this.ctx.font = '10px monospace';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText(Utils.formatFloat(val), sx, sy - (idx*25) + 14);
+                });
+                this.ctx.restore();
+
+                this.drawBox(this.nodes.REG_A, "REG A (LEFT)", vm.regA, activeRegA, vm.regA !== null ? Utils.getFloatHex(vm.regA) : "");
+                this.drawBox(this.nodes.REG_B, "REG B (RIGHT)", vm.regB, activeRegB, vm.regB !== null ? Utils.getFloatHex(vm.regB) : "");
+                this.drawBox(this.nodes.FPU, "64-BIT FPU", null, activeFPU);
+                this.drawBox(this.nodes.REG_OUT, "RESULT", vm.regOut, false, vm.regOut !== null ? Utils.getFloatHex(vm.regOut) : "");
+
+                // Active Packets
+                this.drawPackets();
+            }
+        }
+
+        /**
+         * APP CONTROLLER
+         */
+        const App = {
+            vm: new FPU_VM(),
+            renderer: null,
+            speedMultiplier: 1, // 1 to 10
+            isPlaying: false,
+            runId: 0,
+            
+            // Visual state flags
+            activeFPU: false,
+            activeRegA: false,
+            activeRegB: false,
+
+            init() {
+                this.renderer = new Renderer('dpCanvas');
+                this.bindEvents();
+                this.updateUI();
+                this.renderLoop();
+
+                // Preset chips
+                document.querySelectorAll('.preset-chip').forEach(chip => {
+                    chip.addEventListener('click', (e) => {
+                        document.getElementById('exprInput').value = e.target.innerText;
+                        this.compile();
+                    });
+                });
+            },
+
+            bindEvents() {
+                document.getElementById('btnCompile').addEventListener('click', () => this.compile());
+                document.getElementById('btnPlayPause').addEventListener('click', () => this.togglePlay());
+                document.getElementById('btnStep').addEventListener('click', () => this.step());
+                
+                const speedSlider = document.getElementById('speedSlider');
+                speedSlider.addEventListener('input', (e) => {
+                    // Map 1-10 slider to 0.2x to 5.0x speed conceptually
+                    const val = parseInt(e.target.value);
+                    const mapped = val < 5 ? (val * 0.2).toFixed(1) : (1 + (val-5)*1.0).toFixed(1);
+                    this.speedMultiplier = parseFloat(mapped);
+                    document.getElementById('speedDisplay').innerText = `${this.speedMultiplier}x`;
+                });
+            },
+
+            log(msg, type='info') {
+                const logDiv = document.getElementById('traceLog');
+                const line = document.createElement('div');
+                line.className = `log-line log-${type}`;
+                const time = new Date().toISOString().substring(11, 19);
+                line.innerText = `[${time}] ${msg}`;
+                logDiv.appendChild(line);
+                logDiv.scrollTop = logDiv.scrollHeight;
+            },
+
+            compile() {
+                this.pause();
+                const expr = document.getElementById('exprInput').value;
+                if (!expr.trim()) return;
+
+                this.log(`Compiling: ${expr}`, 'info');
+                
+                // 1. Native Eval for Comparator
+                const nativeRes = Utils.safeEval(expr);
+                document.getElementById('compInput').innerText = expr;
+                document.getElementById('compNative').innerText = nativeRes !== null ? Utils.formatFloat(nativeRes) : "ERR";
+                document.getElementById('compFpu').innerText = "--";
+                document.getElementById('compMatch').style.display = "none";
+                
+                // 2. Tokenize & Compile
+                const tokens = Compiler.tokenize(expr);
+                const rpn = Compiler.infixToRPN(tokens);
+                const microOps = Compiler.compileToMicroOps(rpn);
+
+                this.log(`Generated ${microOps.length} Micro-Ops`, 'info');
+                
+                this.vm.loadOps(microOps);
+                document.getElementById('sysStatus').innerText = "COMPILED. READY.";
+                this.updateUI();
+            },
+
+            updateUI() {
+                // RPN List
+                const list = document.getElementById('rpnList');
+                list.innerHTML = '';
+                document.getElementById('rpnCount').innerText = this.vm.microOps.length;
+                this.vm.microOps.forEach((op, idx) => {
+                    const li = document.createElement('li');
+                    li.className = `rpn-op ${idx === this.vm.pc ? 'active' : ''}`;
+                    li.innerHTML = `<span>[${idx}]</span> <span>${op.desc}</span>`;
+                    list.appendChild(li);
+                });
+
+                // Stack View
+                const stackView = document.getElementById('stackView');
+                stackView.innerHTML = '';
+                if (this.vm.stack.length === 0) {
+                    stackView.innerHTML = '<div class="stack-empty">Stack Empty</div>';
+                } else {
+                    this.vm.stack.forEach((val, idx) => {
+                        const div = document.createElement('div');
+                        div.className = 'stack-slot active';
+                        div.innerText = `${idx}: ${Utils.formatFloat(val)}`;
+                        stackView.appendChild(div);
+                    });
+                }
+            },
+
+            togglePlay() {
+                if (this.vm.isDone() && !this.isPlaying) return; // Cant play if done
+                
+                this.isPlaying = !this.isPlaying;
+                const btn = document.getElementById('btnPlayPause');
+                if (this.isPlaying) {
+                    btn.innerText = '⏸ Pause';
+                    btn.classList.add('active-play');
+                    document.getElementById('sysStatus').innerText = "RUNNING...";
+                    this.runLoop();
+                } else {
+                    btn.innerText = '▶ Run';
+                    btn.classList.remove('active-play');
+                    document.getElementById('sysStatus').innerText = "PAUSED";
+                }
+            },
+
+            pause() {
+                this.isPlaying = false;
+                const btn = document.getElementById('btnPlayPause');
+                btn.innerText = '▶ Run';
+                btn.classList.remove('active-play');
+                this.runId++; // Invalidates current async animations
+            },
+
+            async step() {
+                if (this.isPlaying) this.pause();
+                await this.executeAnimStep(++this.runId);
+            },
+
+            async runLoop() {
+                const currentRun = ++this.runId;
+                while (this.isPlaying && !this.vm.isDone()) {
+                    await this.executeAnimStep(currentRun);
+                    if (currentRun !== this.runId) break; // Abort if interrupted
+                    await Utils.delay(200 / this.speedMultiplier); // Gap between ops
+                }
+                
+                if (this.vm.isDone() && this.isPlaying) {
+                    this.pause();
+                    document.getElementById('sysStatus').innerText = "HALTED. OK.";
+                    this.verifyResult();
+                }
+            },
+
+            verifyResult() {
+                if (this.vm.stack.length === 1) {
+                    const finalFpu = this.vm.stack[0];
+                    document.getElementById('compFpu').innerText = Utils.formatFloat(finalFpu);
+                    
+                    const nativeTxt = document.getElementById('compNative').innerText;
+                    const matchBox = document.getElementById('compMatch');
+                    matchBox.style.display = 'block';
+                    
+                    if (nativeTxt === Utils.formatFloat(finalFpu)) {
+                        matchBox.innerText = "MATCH CONFIRMED ✓";
+                        matchBox.className = "comp-match";
+                        this.log("Verification passed: FPU Output == Native Output", "info");
+                    } else {
+                        matchBox.innerText = "MISMATCH DETECTED ✗";
+                        matchBox.className = "comp-match error";
+                        this.log("Verification failed!", "err");
+                    }
+                }
+            },
+
+            // Create an animated packet and wait for it
+            animatePacket(pathKey, val, color) {
+                return new Promise(resolve => {
+                    const packet = { pathKey, progress: 0, val, color };
+                    this.renderer.packets.push(packet);
+                    
+                    const startFrame = performance.now();
+                    const baseDuration = 1000; // ms
+                    const duration = baseDuration / this.speedMultiplier;
+
+                    const animLoop = (now) => {
+                        let p = (now - startFrame) / duration;
+                        if (p >= 1) {
+                            // remove packet
+                            this.renderer.packets = this.renderer.packets.filter(pk => pk !== packet);
+                            resolve();
+                        } else {
+                            packet.progress = p;
+                            requestAnimationFrame(animLoop);
+                        }
+                    };
+                    requestAnimationFrame(animLoop);
+                });
+            },
+
+            // Handles the visual choreography of a single VM step
+            async executeAnimStep(runId) {
+                if (this.vm.isDone()) return;
+                
+                const op = this.vm.getCurrentOp();
+                this.updateUI(); // Highlight current instruction
+
+                // --- 1. Pre-Execution Animation ---
+                if (op.type === 'PUSH') {
+                    // Packet from outside to stack
+                    await this.animatePacket('EXT_TO_STACK', op.val, '#00f3ff');
+                    if (runId !== this.runId) return;
+                } else if (op.type === 'OP') {
+                    // POP to B, then POP to A
+                    const valB = this.vm.stack[this.vm.stack.length-1];
+                    const valA = this.vm.stack[this.vm.stack.length-2];
+                    
+                    // Animate to B
+                    await this.animatePacket('STACK_TO_B', valB, '#39ff14');
+                    this.activeRegB = true;
+                    if (runId !== this.runId) return;
+
+                    // Animate to A
+                    await this.animatePacket('STACK_TO_A', valA, '#39ff14');
+                    this.activeRegA = true;
+                    if (runId !== this.runId) return;
+
+                    // Compute Phase: Animate into FPU
+                    const p1 = this.animatePacket('A_TO_FPU', valA, '#ffaa00');
+                    const p2 = this.animatePacket('B_TO_FPU', valB, '#ffaa00');
+                    await Promise.all([p1, p2]);
+                    if (runId !== this.runId) return;
+                    
+                    this.activeRegA = false;
+                    this.activeRegB = false;
+                    this.activeFPU = true;
+                    await Utils.delay(500 / this.speedMultiplier); // FPU "Thinking" time
+                    if (runId !== this.runId) return;
+                }
+
+                // --- 2. Logical Execution ---
+                const result = this.vm.executeStep();
+                if (result.error) {
+                    this.log(result.action, 'err');
+                    this.pause();
+                    return;
+                }
+
+                // --- 3. Post-Execution Animation ---
+                if (op.type === 'OP') {
+                    this.activeFPU = false;
+                    this.log(`FPU Computed: ${op.val} -> Result: ${Utils.formatFloat(result.newValue)}`, 'info');
+                    
+                    // Animate out to Result Reg
+                    await this.animatePacket('FPU_TO_OUT', result.newValue, '#00f3ff');
+                    if (runId !== this.runId) return;
+                    
+                    // Animate Result to Stack
+                    await this.animatePacket('OUT_TO_STACK', result.newValue, '#00f3ff');
+                    if (runId !== this.runId) return;
+                    
+                    this.vm.regOut = null; // Clear out reg visually
+                } else {
+                    this.log(`Pushed: ${op.val}`, 'line');
+                }
+
+                this.updateUI(); // Final sync
+            },
+
+            renderLoop() {
+                this.renderer.render({
+                    vm: this.vm,
+                    activeFPU: this.activeFPU,
+                    activeRegA: this.activeRegA,
+                    activeRegB: this.activeRegB
+                });
+                requestAnimationFrame(() => this.renderLoop());
+            }
+        };
+
+        // Initialize App on Load
+        window.addEventListener('DOMContentLoaded', () => {
+            App.init();
+            // Pre-compile the default expression
+            App.compile();
+        });
+
+    </script>
+</body>
+</html>
