@@ -109,7 +109,7 @@
         .input-group {
             display: flex;
             flex: 1;
-            min-width: 300px;
+            min-width: 280px;
             position: relative;
         }
 
@@ -141,6 +141,7 @@
             transition: all 0.2s ease;
             text-transform: uppercase;
             font-weight: bold;
+            touch-action: manipulation;
         }
 
         button:hover { background: var(--border-light); }
@@ -150,6 +151,7 @@
             border-color: var(--neon-cyan);
             color: var(--neon-cyan);
             border-radius: 0 4px 4px 0;
+            white-space: nowrap;
         }
         
         .btn-primary:hover {
@@ -212,7 +214,7 @@
             font-family: var(--font-mono);
             font-size: 0.8rem;
         }
-        .comp-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .comp-row { display: flex; justify-content: space-between; margin-bottom: 4px; gap: 8px; word-break: break-all; }
         .comp-val { color: var(--neon-green); font-weight: bold; }
         .comp-match { text-align: center; margin-top: 8px; padding: 4px; background: rgba(57, 255, 20, 0.1); color: var(--neon-green); border-radius: 2px; display: none;}
         .comp-match.error { background: rgba(255, 0, 60, 0.1); color: var(--neon-crimson); }
@@ -312,28 +314,96 @@
         .presets {
             display: flex;
             gap: 8px;
-            padding: 8px 24px;
+            padding: 8px 16px;
             background: var(--bg-base);
             border-bottom: 1px solid var(--border-dark);
             align-items: center;
+            overflow-x: auto;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
         }
         .preset-chip {
             background: rgba(255,255,255,0.05);
             border: 1px solid var(--border-light);
             color: var(--text-dim);
             font-size: 0.7rem;
-            padding: 2px 8px;
+            padding: 4px 10px;
             border-radius: 12px;
             cursor: pointer;
             font-family: var(--font-mono);
+            flex-shrink: 0;
         }
         .preset-chip:hover { color: var(--neon-cyan); border-color: var(--neon-cyan); }
 
         /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
         ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--neon-cyan); }
+
+        /* Mobile Responsive Layout Styles */
+        @media (max-width: 768px) {
+            body {
+                height: auto;
+                min-height: 100vh;
+                overflow-y: auto;
+            }
+
+            header {
+                padding: 10px 14px;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .brand h1 {
+                font-size: 1rem;
+            }
+
+            .toolbar {
+                padding: 10px 14px;
+                gap: 8px;
+            }
+
+            .input-group {
+                min-width: 100%;
+            }
+
+            input[type="text"] {
+                font-size: 0.9rem;
+                padding: 8px 10px;
+            }
+
+            .speed-control {
+                width: 100%;
+                justify-content: space-between;
+                margin-top: 4px;
+            }
+
+            .speed-control input[type="range"] {
+                flex: 1;
+            }
+
+            .workspace {
+                flex-direction: column;
+                overflow: visible;
+                height: auto;
+            }
+
+            .canvas-container {
+                width: 100%;
+                height: 360px;
+                min-height: 360px;
+                order: 1;
+                border-bottom: 1px solid var(--border-dark);
+            }
+
+            .sidebar {
+                width: 100%;
+                order: 2;
+                border-right: none;
+                overflow-y: visible;
+            }
+        }
     </style>
 </head>
 <body>
@@ -343,21 +413,21 @@
             <h1>64-Bit FPU Datapath Vis</h1>
             <span>IEEE 754 Floating Point Micro-Op Executor</span>
         </div>
-        <div style="color: var(--neon-green); font-family: var(--font-mono); font-size: 0.8rem; border: 1px solid var(--neon-green); padding: 4px 8px; border-radius: 4px; background: rgba(57, 255, 20, 0.05);">
+        <div style="color: var(--neon-green); font-family: var(--font-mono); font-size: 0.75rem; border: 1px solid var(--neon-green); padding: 4px 8px; border-radius: 4px; background: rgba(57, 255, 20, 0.05);">
             STATUS: <span id="sysStatus">IDLE</span>
         </div>
     </header>
 
     <div class="toolbar">
         <div class="input-group">
-            <input type="text" id="exprInput" value="((2.5 + 3.5) * 10) / 3" placeholder="Enter math expression e.g. 3.14 * (2 + 1.5)">
-            <button class="btn-primary" id="btnCompile">Compile to RPN</button>
+            <input type="text" id="exprInput" value="((2.5 + 3.5) * 10) / 3" placeholder="e.g. 3.14 * (2 + 1.5)">
+            <button class="btn-primary" id="btnCompile">Compile</button>
         </div>
         <button class="btn-action" id="btnPlayPause">▶ Run</button>
         <button class="btn-action" id="btnStep" title="Step Forward">⏭ Step</button>
         
         <div class="speed-control">
-            <span>CLK Speed:</span>
+            <span>CLK:</span>
             <input type="range" id="speedSlider" min="1" max="10" value="5">
             <span id="speedDisplay">1.0x</span>
         </div>
@@ -398,7 +468,6 @@
             <div class="panel">
                 <div class="panel-header">Compiled Micro-Ops (RPN) <span id="rpnCount">0</span></div>
                 <ul class="rpn-list" id="rpnList">
-                    <!-- Populated by JS -->
                     <li style="color:var(--text-dim); font-style:italic; font-size: 0.7rem;">Awaiting Compilation...</li>
                 </ul>
             </div>
@@ -431,11 +500,9 @@
          */
         const Utils = {
             formatFloat: (num) => {
-                // Remove trailing zeros for clean display, max 6 decimal places
                 return parseFloat(num.toFixed(6)).toString();
             },
             getFloatHex: (num) => {
-                // Get IEEE 754 Hex representation for pure visual nerdiness
                 const buf = new ArrayBuffer(8);
                 new Float64Array(buf)[0] = num;
                 const ints = new Uint32Array(buf);
@@ -444,7 +511,6 @@
             delay: (ms) => new Promise(res => setTimeout(res, ms)),
             safeEval: (expr) => {
                 try {
-                    // Safe evaluation using Function
                     const sanitize = expr.replace(/[^0-9\+\-\*\/\(\)\.]/g, '');
                     const res = new Function(`return ${sanitize}`)();
                     return res;
@@ -457,7 +523,6 @@
          */
         class Compiler {
             static tokenize(expr) {
-                // Match numbers (including decimals), and operators/parens
                 const tokens = [];
                 const regex = /([0-9]*\.?[0-9]+|[\+\-\*\/\(\)])/g;
                 let match;
@@ -472,7 +537,6 @@
                 const operators = [];
                 const precedence = { '+': 1, '-': 1, '*': 2, '/': 2 };
 
-                // Very basic unary minus handler: replace "- x" at start or after "(" with "0 - x"
                 const processedTokens = [];
                 for(let i=0; i<tokens.length; i++) {
                     if (tokens[i] === '-' && (i === 0 || tokens[i-1] === '(')) {
@@ -485,7 +549,7 @@
 
                 processedTokens.forEach(token => {
                     if (!isNaN(parseFloat(token))) {
-                        output.push(parseFloat(token)); // Push number
+                        output.push(parseFloat(token));
                     } else if (token in precedence) {
                         while (operators.length > 0 && 
                                operators[operators.length - 1] !== '(' && 
@@ -499,7 +563,7 @@
                         while (operators.length > 0 && operators[operators.length - 1] !== '(') {
                             output.push(operators.pop());
                         }
-                        operators.pop(); // Pop '('
+                        operators.pop();
                     }
                 });
 
@@ -511,7 +575,6 @@
             }
 
             static compileToMicroOps(rpnArray) {
-                // Convert RPN sequence to executable VM steps
                 const ops = [];
                 rpnArray.forEach((item, idx) => {
                     if (typeof item === 'number') {
@@ -537,9 +600,9 @@
                 this.regA = null;
                 this.regB = null;
                 this.regOut = null;
-                this.pc = 0; // Program Counter
+                this.pc = 0;
                 this.microOps = [];
-                this.state = 'IDLE'; // IDLE, RUNNING, PAUSED, DONE, ERROR
+                this.state = 'IDLE';
             }
 
             loadOps(ops) {
@@ -557,7 +620,6 @@
                 return this.microOps[this.pc];
             }
 
-            // Executes purely the logic step (animation is handled by controller)
             executeStep() {
                 const op = this.getCurrentOp();
                 if (!op) return null;
@@ -572,8 +634,8 @@
                     } else if (op.type === 'OP') {
                         if (this.stack.length < 2) throw new Error("Stack Underflow");
                         
-                        this.regB = this.stack.pop(); // Right operand
-                        this.regA = this.stack.pop(); // Left operand
+                        this.regB = this.stack.pop();
+                        this.regA = this.stack.pop();
                         
                         let res = 0;
                         switch(op.val) {
@@ -613,10 +675,9 @@
                 this.width = this.canvas.width;
                 this.height = this.canvas.height;
                 
-                // Hardware components bounds (will be calculated on resize)
                 this.nodes = {};
                 this.wires = [];
-                this.packets = []; // Active data packets traveling
+                this.packets = [];
                 
                 this.resize();
                 window.addEventListener('resize', () => this.resize());
@@ -634,60 +695,121 @@
             recalculateLayout() {
                 const w = this.width;
                 const h = this.height;
-                const centerX = w / 2;
 
-                // Define structural blocks
-                this.nodes = {
-                    STACK:  { x: centerX - 250, y: h/2, w: 100, h: 200 },
-                    REG_A:  { x: centerX - 50,  y: 80,  w: 120, h: 50 },
-                    REG_B:  { x: centerX + 150, y: 80,  w: 120, h: 50 },
-                    FPU:    { x: centerX + 50,  y: h/2, w: 200, h: 120 },
-                    REG_OUT:{ x: centerX + 50,  y: h - 100, w: 160, h: 50 }
-                };
+                if (w < 600) {
+                    // Mobile Dynamic Layout
+                    const stackW = Math.max(65, Math.min(80, w * 0.18));
+                    const regW = Math.max(75, Math.min(100, w * 0.24));
+                    const fpuW = Math.max(120, Math.min(160, w * 0.42));
+                    const outW = Math.max(90, Math.min(130, w * 0.35));
 
-                // Define manhattan wires (source Node -> target Node)
-                // Wires are arrays of points
-                this.wires = {
-                    'STACK_TO_A': [
-                        {x: this.nodes.STACK.x + this.nodes.STACK.w/2, y: this.nodes.STACK.y - this.nodes.STACK.h/2}, // Stack top
-                        {x: this.nodes.STACK.x + this.nodes.STACK.w/2, y: 40},
-                        {x: this.nodes.REG_A.x, y: 40},
-                        {x: this.nodes.REG_A.x, y: this.nodes.REG_A.y - 25} // Reg A top
-                    ],
-                    'STACK_TO_B': [
-                        {x: this.nodes.STACK.x + this.nodes.STACK.w/2, y: this.nodes.STACK.y - this.nodes.STACK.h/2},
-                        {x: this.nodes.STACK.x + this.nodes.STACK.w/2, y: 30},
-                        {x: this.nodes.REG_B.x, y: 30},
-                        {x: this.nodes.REG_B.x, y: this.nodes.REG_B.y - 25} // Reg B top
-                    ],
-                    'A_TO_FPU': [
-                        {x: this.nodes.REG_A.x, y: this.nodes.REG_A.y + 25},
-                        {x: this.nodes.REG_A.x, y: this.nodes.FPU.y - 60} // FPU Top Left
-                    ],
-                    'B_TO_FPU': [
-                        {x: this.nodes.REG_B.x, y: this.nodes.REG_B.y + 25},
-                        {x: this.nodes.REG_B.x, y: this.nodes.FPU.y - 60} // FPU Top Right
-                    ],
-                    'FPU_TO_OUT': [
-                        {x: this.nodes.FPU.x, y: this.nodes.FPU.y + 60},
-                        {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y - 25}
-                    ],
-                    'OUT_TO_STACK': [
-                        {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y + 25},
-                        {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y + 60},
-                        {x: this.nodes.STACK.x, y: this.nodes.REG_OUT.y + 60},
-                        {x: this.nodes.STACK.x, y: this.nodes.STACK.y + this.nodes.STACK.h/2} // Stack bottom entry
-                    ],
-                    'EXT_TO_STACK': [ // For initial Push
-                        {x: this.nodes.STACK.x - 100, y: this.nodes.STACK.y},
-                        {x: this.nodes.STACK.x - 50, y: this.nodes.STACK.y}
-                    ]
-                };
+                    const stackX = w * 0.18;
+                    const regAX = w * 0.50;
+                    const regBX = w * 0.82;
+                    const fpuX = w * 0.66;
+                    const outX = w * 0.66;
+
+                    this.nodes = {
+                        STACK:   { x: stackX, y: h * 0.48, w: stackW, h: 160 },
+                        REG_A:   { x: regAX,  y: 50,       w: regW,   h: 40 },
+                        REG_B:   { x: regBX,  y: 50,       w: regW,   h: 40 },
+                        FPU:     { x: fpuX,   y: h * 0.48, w: fpuW,   h: 90 },
+                        REG_OUT: { x: outX,   y: h * 0.82, w: outW,   h: 40 }
+                    };
+
+                    this.wires = {
+                        'STACK_TO_A': [
+                            {x: this.nodes.STACK.x, y: this.nodes.STACK.y - this.nodes.STACK.h/2},
+                            {x: this.nodes.STACK.x, y: 20},
+                            {x: this.nodes.REG_A.x, y: 20},
+                            {x: this.nodes.REG_A.x, y: this.nodes.REG_A.y - this.nodes.REG_A.h/2}
+                        ],
+                        'STACK_TO_B': [
+                            {x: this.nodes.STACK.x, y: this.nodes.STACK.y - this.nodes.STACK.h/2},
+                            {x: this.nodes.STACK.x, y: 10},
+                            {x: this.nodes.REG_B.x, y: 10},
+                            {x: this.nodes.REG_B.x, y: this.nodes.REG_B.y - this.nodes.REG_B.h/2}
+                        ],
+                        'A_TO_FPU': [
+                            {x: this.nodes.REG_A.x, y: this.nodes.REG_A.y + this.nodes.REG_A.h/2},
+                            {x: this.nodes.REG_A.x, y: this.nodes.FPU.y - this.nodes.FPU.h/2}
+                        ],
+                        'B_TO_FPU': [
+                            {x: this.nodes.REG_B.x, y: this.nodes.REG_B.y + this.nodes.REG_B.h/2},
+                            {x: this.nodes.REG_B.x, y: this.nodes.FPU.y - this.nodes.FPU.h/2}
+                        ],
+                        'FPU_TO_OUT': [
+                            {x: this.nodes.FPU.x, y: this.nodes.FPU.y + this.nodes.FPU.h/2},
+                            {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y - this.nodes.REG_OUT.h/2}
+                        ],
+                        'OUT_TO_STACK': [
+                            {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y + this.nodes.REG_OUT.h/2},
+                            {x: this.nodes.REG_OUT.x, y: h - 15},
+                            {x: this.nodes.STACK.x, y: h - 15},
+                            {x: this.nodes.STACK.x, y: this.nodes.STACK.y + this.nodes.STACK.h/2}
+                        ],
+                        'EXT_TO_STACK': [
+                            {x: Math.max(5, this.nodes.STACK.x - 50), y: this.nodes.STACK.y},
+                            {x: this.nodes.STACK.x - this.nodes.STACK.w/2, y: this.nodes.STACK.y}
+                        ]
+                    };
+                } else {
+                    // Desktop Layout
+                    const centerX = w / 2;
+                    const stackW = 100, regW = 120, fpuW = 200, outW = 160;
+                    const spacing = Math.min(200, w * 0.22);
+
+                    this.nodes = {
+                        STACK:   { x: Math.max(80, centerX - spacing * 1.3), y: h/2, w: stackW, h: 200 },
+                        REG_A:   { x: centerX - spacing * 0.3, y: 80,  w: regW,   h: 50 },
+                        REG_B:   { x: centerX + spacing * 0.7, y: 80,  w: regW,   h: 50 },
+                        FPU:     { x: centerX + spacing * 0.2, y: h/2, w: fpuW,   h: 120 },
+                        REG_OUT: { x: centerX + spacing * 0.2, y: h - 100, w: outW, h: 50 }
+                    };
+
+                    this.wires = {
+                        'STACK_TO_A': [
+                            {x: this.nodes.STACK.x, y: this.nodes.STACK.y - this.nodes.STACK.h/2},
+                            {x: this.nodes.STACK.x, y: 40},
+                            {x: this.nodes.REG_A.x, y: 40},
+                            {x: this.nodes.REG_A.x, y: this.nodes.REG_A.y - this.nodes.REG_A.h/2}
+                        ],
+                        'STACK_TO_B': [
+                            {x: this.nodes.STACK.x, y: this.nodes.STACK.y - this.nodes.STACK.h/2},
+                            {x: this.nodes.STACK.x, y: 30},
+                            {x: this.nodes.REG_B.x, y: 30},
+                            {x: this.nodes.REG_B.x, y: this.nodes.REG_B.y - this.nodes.REG_B.h/2}
+                        ],
+                        'A_TO_FPU': [
+                            {x: this.nodes.REG_A.x, y: this.nodes.REG_A.y + this.nodes.REG_A.h/2},
+                            {x: this.nodes.REG_A.x, y: this.nodes.FPU.y - this.nodes.FPU.h/2}
+                        ],
+                        'B_TO_FPU': [
+                            {x: this.nodes.REG_B.x, y: this.nodes.REG_B.y + this.nodes.REG_B.h/2},
+                            {x: this.nodes.REG_B.x, y: this.nodes.FPU.y - this.nodes.FPU.h/2}
+                        ],
+                        'FPU_TO_OUT': [
+                            {x: this.nodes.FPU.x, y: this.nodes.FPU.y + this.nodes.FPU.h/2},
+                            {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y - this.nodes.REG_OUT.h/2}
+                        ],
+                        'OUT_TO_STACK': [
+                            {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y + this.nodes.REG_OUT.h/2},
+                            {x: this.nodes.REG_OUT.x, y: this.nodes.REG_OUT.y + 60},
+                            {x: this.nodes.STACK.x, y: this.nodes.REG_OUT.y + 60},
+                            {x: this.nodes.STACK.x, y: this.nodes.STACK.y + this.nodes.STACK.h/2}
+                        ],
+                        'EXT_TO_STACK': [
+                            {x: this.nodes.STACK.x - 80, y: this.nodes.STACK.y},
+                            {x: this.nodes.STACK.x - this.nodes.STACK.w/2, y: this.nodes.STACK.y}
+                        ]
+                    };
+                }
             }
 
             drawBox(node, label, val = null, active = false, hexStr = "") {
                 const ctx = this.ctx;
                 const {x, y, w, h} = node;
+                const isSmall = w < 100;
                 
                 ctx.save();
                 ctx.translate(x, y);
@@ -711,35 +833,35 @@
                 ctx.strokeStyle = 'rgba(255,255,255,0.05)';
                 ctx.strokeRect(-w/2 + 4, -h/2 + 4, w - 8, h - 8);
 
-                ctx.shadowBlur = 0; // reset
+                ctx.shadowBlur = 0;
 
                 // Label
                 ctx.fillStyle = '#778da9';
-                ctx.font = '12px "Fira Code", monospace';
+                ctx.font = isSmall ? '10px "Fira Code", monospace' : '12px "Fira Code", monospace';
                 ctx.textAlign = 'center';
-                ctx.fillText(label, 0, -h/2 + 16);
+                ctx.fillText(label, 0, -h/2 + (isSmall ? 12 : 16));
 
                 // Value
                 if (val !== null) {
                     ctx.fillStyle = active ? '#39ff14' : '#e0e1dd';
-                    ctx.font = 'bold 16px "Fira Code", monospace';
+                    ctx.font = isSmall ? 'bold 12px "Fira Code", monospace' : 'bold 16px "Fira Code", monospace';
                     ctx.fillText(Utils.formatFloat(val), 0, 5);
                     
-                    if (hexStr) {
+                    if (hexStr && !isSmall) {
                         ctx.fillStyle = '#415a77';
                         ctx.font = '10px "Fira Code", monospace';
                         ctx.fillText(`0x${hexStr}`, 0, 20);
                     }
                 } else if (label !== "64-BIT FPU" && label !== "STACK") {
                     ctx.fillStyle = '#415a77';
-                    ctx.font = '14px "Fira Code", monospace';
+                    ctx.font = isSmall ? '11px "Fira Code", monospace' : '14px "Fira Code", monospace';
                     ctx.fillText("NULL", 0, 5);
                 }
 
                 // FPU special decorations
                 if (label === "64-BIT FPU") {
                     ctx.fillStyle = active ? '#ffaa00' : '#415a77';
-                    ctx.font = '24px "Inter", sans-serif';
+                    ctx.font = isSmall ? '16px "Inter", sans-serif' : '24px "Inter", sans-serif';
                     ctx.fillText(active ? "COMPUTING..." : "IEEE 754", 0, 10);
                 }
 
@@ -761,10 +883,9 @@
                     }
                     ctx.stroke();
                 }
-                ctx.setLineDash([]); // reset
+                ctx.setLineDash([]);
             }
 
-            // Packet = { pathKey: 'STACK_TO_A', progress: 0..1, val: 42, color: '#39ff14' }
             drawPackets() {
                 const ctx = this.ctx;
                 
@@ -772,7 +893,6 @@
                     const pts = this.wires[p.pathKey];
                     if(!pts) return;
 
-                    // Interpolate position along multi-segment path
                     let totalDist = 0;
                     const segDists = [];
                     for(let i=0; i<pts.length-1; i++) {
@@ -787,32 +907,29 @@
 
                     for(let i=0; i<pts.length-1; i++) {
                         if (targetDist <= currentDist + segDists[i]) {
-                            // Point is on this segment
                             const segmentProgress = (targetDist - currentDist) / segDists[i];
                             pos.x = pts[i].x + (pts[i+1].x - pts[i].x) * segmentProgress;
                             pos.y = pts[i].y + (pts[i+1].y - pts[i].y) * segmentProgress;
                             break;
                         }
                         currentDist += segDists[i];
-                        if (i === pts.length - 2) pos = pts[pts.length-1]; // Force to end if rounding issue
+                        if (i === pts.length - 2) pos = pts[pts.length-1];
                     }
 
-                    // Draw glowing packet dot
                     ctx.save();
                     ctx.translate(pos.x, pos.y);
                     
                     ctx.beginPath();
-                    ctx.arc(0, 0, 6, 0, Math.PI*2);
+                    ctx.arc(0, 0, 5, 0, Math.PI*2);
                     ctx.fillStyle = p.color || '#00f3ff';
                     ctx.shadowColor = p.color || '#00f3ff';
-                    ctx.shadowBlur = 10;
+                    ctx.shadowBlur = 8;
                     ctx.fill();
 
-                    // Draw Value floating next to it
                     ctx.fillStyle = '#fff';
                     ctx.shadowBlur = 0;
-                    ctx.font = '12px "Fira Code", monospace';
-                    ctx.fillText(Utils.formatFloat(p.val), 10, -10);
+                    ctx.font = '11px "Fira Code", monospace';
+                    ctx.fillText(Utils.formatFloat(p.val), 8, -8);
                     
                     ctx.restore();
                 });
@@ -821,37 +938,36 @@
             render(vmState) {
                 this.ctx.clearRect(0, 0, this.width, this.height);
                 
-                // Static Wires
                 this.drawWires();
                 
-                // Hardware Nodes
                 const { vm, activeFPU, activeRegA, activeRegB } = vmState;
                 
-                // Draw Stack specific visual (Boxes inside stack)
                 this.drawBox(this.nodes.STACK, "STACK", null, false);
-                // Draw stack items inside the box
+                
+                // Stack items inside the box
                 this.ctx.save();
                 const sx = this.nodes.STACK.x;
-                const sy = this.nodes.STACK.y + this.nodes.STACK.h/2 - 20; // Bottom up
+                const sy = this.nodes.STACK.y + this.nodes.STACK.h/2 - 18;
+                const boxWidth = Math.max(50, this.nodes.STACK.w - 15);
+
                 vm.stack.forEach((val, idx) => {
                     this.ctx.fillStyle = '#1b263b';
                     this.ctx.strokeStyle = '#00f3ff';
-                    this.ctx.fillRect(sx - 40, sy - (idx*25), 80, 20);
-                    this.ctx.strokeRect(sx - 40, sy - (idx*25), 80, 20);
+                    this.ctx.fillRect(sx - boxWidth/2, sy - (idx*22), boxWidth, 18);
+                    this.ctx.strokeRect(sx - boxWidth/2, sy - (idx*22), boxWidth, 18);
                     
                     this.ctx.fillStyle = '#39ff14';
                     this.ctx.font = '10px monospace';
                     this.ctx.textAlign = 'center';
-                    this.ctx.fillText(Utils.formatFloat(val), sx, sy - (idx*25) + 14);
+                    this.ctx.fillText(Utils.formatFloat(val), sx, sy - (idx*22) + 13);
                 });
                 this.ctx.restore();
 
-                this.drawBox(this.nodes.REG_A, "REG A (LEFT)", vm.regA, activeRegA, vm.regA !== null ? Utils.getFloatHex(vm.regA) : "");
-                this.drawBox(this.nodes.REG_B, "REG B (RIGHT)", vm.regB, activeRegB, vm.regB !== null ? Utils.getFloatHex(vm.regB) : "");
+                this.drawBox(this.nodes.REG_A, "REG A", vm.regA, activeRegA, vm.regA !== null ? Utils.getFloatHex(vm.regA) : "");
+                this.drawBox(this.nodes.REG_B, "REG B", vm.regB, activeRegB, vm.regB !== null ? Utils.getFloatHex(vm.regB) : "");
                 this.drawBox(this.nodes.FPU, "64-BIT FPU", null, activeFPU);
                 this.drawBox(this.nodes.REG_OUT, "RESULT", vm.regOut, false, vm.regOut !== null ? Utils.getFloatHex(vm.regOut) : "");
 
-                // Active Packets
                 this.drawPackets();
             }
         }
@@ -862,11 +978,10 @@
         const App = {
             vm: new FPU_VM(),
             renderer: null,
-            speedMultiplier: 1, // 1 to 10
+            speedMultiplier: 1,
             isPlaying: false,
             runId: 0,
             
-            // Visual state flags
             activeFPU: false,
             activeRegA: false,
             activeRegB: false,
@@ -877,7 +992,6 @@
                 this.updateUI();
                 this.renderLoop();
 
-                // Preset chips
                 document.querySelectorAll('.preset-chip').forEach(chip => {
                     chip.addEventListener('click', (e) => {
                         document.getElementById('exprInput').value = e.target.innerText;
@@ -893,7 +1007,6 @@
                 
                 const speedSlider = document.getElementById('speedSlider');
                 speedSlider.addEventListener('input', (e) => {
-                    // Map 1-10 slider to 0.2x to 5.0x speed conceptually
                     const val = parseInt(e.target.value);
                     const mapped = val < 5 ? (val * 0.2).toFixed(1) : (1 + (val-5)*1.0).toFixed(1);
                     this.speedMultiplier = parseFloat(mapped);
@@ -918,14 +1031,12 @@
 
                 this.log(`Compiling: ${expr}`, 'info');
                 
-                // 1. Native Eval for Comparator
                 const nativeRes = Utils.safeEval(expr);
                 document.getElementById('compInput').innerText = expr;
                 document.getElementById('compNative').innerText = nativeRes !== null ? Utils.formatFloat(nativeRes) : "ERR";
                 document.getElementById('compFpu').innerText = "--";
                 document.getElementById('compMatch').style.display = "none";
                 
-                // 2. Tokenize & Compile
                 const tokens = Compiler.tokenize(expr);
                 const rpn = Compiler.infixToRPN(tokens);
                 const microOps = Compiler.compileToMicroOps(rpn);
@@ -938,7 +1049,6 @@
             },
 
             updateUI() {
-                // RPN List
                 const list = document.getElementById('rpnList');
                 list.innerHTML = '';
                 document.getElementById('rpnCount').innerText = this.vm.microOps.length;
@@ -949,7 +1059,6 @@
                     list.appendChild(li);
                 });
 
-                // Stack View
                 const stackView = document.getElementById('stackView');
                 stackView.innerHTML = '';
                 if (this.vm.stack.length === 0) {
@@ -965,7 +1074,7 @@
             },
 
             togglePlay() {
-                if (this.vm.isDone() && !this.isPlaying) return; // Cant play if done
+                if (this.vm.isDone() && !this.isPlaying) return;
                 
                 this.isPlaying = !this.isPlaying;
                 const btn = document.getElementById('btnPlayPause');
@@ -986,7 +1095,7 @@
                 const btn = document.getElementById('btnPlayPause');
                 btn.innerText = '▶ Run';
                 btn.classList.remove('active-play');
-                this.runId++; // Invalidates current async animations
+                this.runId++;
             },
 
             async step() {
@@ -998,8 +1107,8 @@
                 const currentRun = ++this.runId;
                 while (this.isPlaying && !this.vm.isDone()) {
                     await this.executeAnimStep(currentRun);
-                    if (currentRun !== this.runId) break; // Abort if interrupted
-                    await Utils.delay(200 / this.speedMultiplier); // Gap between ops
+                    if (currentRun !== this.runId) break;
+                    await Utils.delay(200 / this.speedMultiplier);
                 }
                 
                 if (this.vm.isDone() && this.isPlaying) {
@@ -1030,20 +1139,18 @@
                 }
             },
 
-            // Create an animated packet and wait for it
             animatePacket(pathKey, val, color) {
                 return new Promise(resolve => {
                     const packet = { pathKey, progress: 0, val, color };
                     this.renderer.packets.push(packet);
                     
                     const startFrame = performance.now();
-                    const baseDuration = 1000; // ms
+                    const baseDuration = 1000;
                     const duration = baseDuration / this.speedMultiplier;
 
                     const animLoop = (now) => {
                         let p = (now - startFrame) / duration;
                         if (p >= 1) {
-                            // remove packet
                             this.renderer.packets = this.renderer.packets.filter(pk => pk !== packet);
                             resolve();
                         } else {
@@ -1055,34 +1162,27 @@
                 });
             },
 
-            // Handles the visual choreography of a single VM step
             async executeAnimStep(runId) {
                 if (this.vm.isDone()) return;
                 
                 const op = this.vm.getCurrentOp();
-                this.updateUI(); // Highlight current instruction
+                this.updateUI();
 
-                // --- 1. Pre-Execution Animation ---
                 if (op.type === 'PUSH') {
-                    // Packet from outside to stack
                     await this.animatePacket('EXT_TO_STACK', op.val, '#00f3ff');
                     if (runId !== this.runId) return;
                 } else if (op.type === 'OP') {
-                    // POP to B, then POP to A
                     const valB = this.vm.stack[this.vm.stack.length-1];
                     const valA = this.vm.stack[this.vm.stack.length-2];
                     
-                    // Animate to B
                     await this.animatePacket('STACK_TO_B', valB, '#39ff14');
                     this.activeRegB = true;
                     if (runId !== this.runId) return;
 
-                    // Animate to A
                     await this.animatePacket('STACK_TO_A', valA, '#39ff14');
                     this.activeRegA = true;
                     if (runId !== this.runId) return;
 
-                    // Compute Phase: Animate into FPU
                     const p1 = this.animatePacket('A_TO_FPU', valA, '#ffaa00');
                     const p2 = this.animatePacket('B_TO_FPU', valB, '#ffaa00');
                     await Promise.all([p1, p2]);
@@ -1091,11 +1191,10 @@
                     this.activeRegA = false;
                     this.activeRegB = false;
                     this.activeFPU = true;
-                    await Utils.delay(500 / this.speedMultiplier); // FPU "Thinking" time
+                    await Utils.delay(500 / this.speedMultiplier);
                     if (runId !== this.runId) return;
                 }
 
-                // --- 2. Logical Execution ---
                 const result = this.vm.executeStep();
                 if (result.error) {
                     this.log(result.action, 'err');
@@ -1103,25 +1202,22 @@
                     return;
                 }
 
-                // --- 3. Post-Execution Animation ---
                 if (op.type === 'OP') {
                     this.activeFPU = false;
                     this.log(`FPU Computed: ${op.val} -> Result: ${Utils.formatFloat(result.newValue)}`, 'info');
                     
-                    // Animate out to Result Reg
                     await this.animatePacket('FPU_TO_OUT', result.newValue, '#00f3ff');
                     if (runId !== this.runId) return;
                     
-                    // Animate Result to Stack
                     await this.animatePacket('OUT_TO_STACK', result.newValue, '#00f3ff');
                     if (runId !== this.runId) return;
                     
-                    this.vm.regOut = null; // Clear out reg visually
+                    this.vm.regOut = null;
                 } else {
                     this.log(`Pushed: ${op.val}`, 'line');
                 }
 
-                this.updateUI(); // Final sync
+                this.updateUI();
             },
 
             renderLoop() {
@@ -1135,13 +1231,10 @@
             }
         };
 
-        // Initialize App on Load
         window.addEventListener('DOMContentLoaded', () => {
             App.init();
-            // Pre-compile the default expression
             App.compile();
         });
-
     </script>
 </body>
 </html>
